@@ -1,0 +1,627 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ảnh Thẻ AI – Chuyên Nghiệp & Nhanh Chóng</title>
+    
+    <!-- Tailwind CSS v4 CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Babel for JSX/TS in browser -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono&display=swap');
+      
+      body {
+        font-family: 'Inter', sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .font-mono {
+        font-family: 'JetBrains Mono', monospace;
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #f1f5f9;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+      }
+
+      /* Glassmorphism */
+      .glass {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(12px);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+      }
+    </style>
+  </head>
+  <body class="bg-[#F8FAFC] text-slate-900">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+      import React, { useRef, useState, useEffect } from "https://esm.sh/react@19.0.0";
+      import { createRoot } from "https://esm.sh/react-dom@19.0.0/client";
+      import { GoogleGenAI } from "https://esm.sh/@google/genai@1.31.0";
+      import { 
+        Camera, Download, FileText, Settings, User, 
+        Image as ImageIcon, Check, AlertCircle, Loader2, 
+        RefreshCw, UserCircle, Palette, Maximize, Shirt,
+        ShieldCheck, Info, Github, ExternalLink, X
+      } from "https://esm.sh/lucide-react@0.475.0";
+      import { motion, AnimatePresence } from "https://esm.sh/motion/react@12.0.0";
+
+      // --- Constants ---
+      const GENDERS = [
+        { id: "female", label: "Nữ", icon: <User className="w-4 h-4" /> },
+        { id: "male", label: "Nam", icon: <User className="w-4 h-4" /> }
+      ];
+
+      const BACKGROUNDS = [
+        { id: "blue", label: "Nền Xanh", color: "bg-[#0074D9]", hex: "#0074D9" },
+        { id: "white", label: "Nền Trắng", color: "bg-white border border-slate-200", hex: "#FFFFFF" }
+      ];
+
+      const RATIOS = [
+        { id: "3:4", label: "3x4 / 4x6", desc: "Phổ thông" },
+        { id: "3.5:4.5", label: "3.5x4.5 cm", desc: "Hộ chiếu/Visa" },
+        { id: "1:1", label: "5x5 cm", desc: "Visa Mỹ" }
+      ];
+
+      const ATTIRES = [
+        { id: "white", label: "Áo trắng", desc: "Sơ mi trắng" },
+        { id: "colorful", label: "Áo màu", desc: "Lịch sự" }
+      ];
+
+      // --- Prompt Builder ---
+      function buildIDPrompt({ gender, bg, keepFace, ratio, attire }) {
+        const bgDescription = bg === "blue"
+          ? "a solid, flat, azure blue background (Hex #0074D9). No gradients, no shadows, no studio backdrop texture."
+          : "a solid, flat, pure white background (Hex #FFFFFF). No grey tones, no shadows, no corners, no floor lines. Completely uniform white.";
+
+        const attireDescription = attire === "white"
+          ? "A clean, simple white collared shirt."
+          : "A professional, colorful button-down shirt or blouse (e.g., pastel blue, pink, floral pattern, or solid bright color). NOT a white shirt. Ensure the clothing color contrasts well with the background.";
+
+        const base = gender === "female"
+          ? "A professional passport photo of a Vietnamese woman with natural black hair. The hair must be neatly tucked behind ears so BOTH EARS are clearly visible."
+          : "A professional passport photo of a Vietnamese man with natural black hair. BOTH EARS must be clearly visible.";
+
+        const keep = keepFace 
+          ? "CRITICAL: Strictly preserve the original face, facial features, eyes, nose, mouth, skin texture. The hair color MUST REMAIN NATURAL BLACK. IT IS VITAL TO PRESERVE THE ORIGINAL HAIRSTYLE, HAIR LENGTH, AND TEXTURE. Do not change the haircut or hair volume. The identity must be identical. REQUIREMENT: Neatly tuck hair strands behind the ears to reveal them fully, but otherwise keep the hair exactly as in the reference image." 
+          : "";
+        
+        let ratioText = "vertical 3:4";
+        if (ratio === "1:1") ratioText = "square 1:1";
+        if (ratio === "3.5:4.5") ratioText = "vertical 3.5:4.5 (approximately 7:9)";
+
+        return (
+          `Generate ${base} ${keep} ` +
+          `Attire: ${attireDescription} ` +
+          `Expression: Neutral, mouth closed, eyes open looking straight ahead. ` +
+          `Lighting: Soft, even, shadowless face lighting. ` +
+          `Background: Strictly ${bgDescription}. ` +
+          `Composition: Standard passport composition showing full head and shoulders. Ensure both shoulders are visible in the frame (do not crop too tight). Center the face. Both ears must be clearly visible. ` +
+          `Technical: High resolution, sharp focus, ${ratioText} aspect ratio. ` +
+          `Negative prompt: hair covering ears, hidden ears, ears covered, one ear hidden, changed hairstyle, different haircut, different hair length, cropped shoulders, neck crop, brown hair, dyed hair, light hair, altered face, messy hair, shadows on wall, two-tone background, studio floor, furniture.`
+        );
+      }
+
+      // --- Main App Component ---
+      function App() {
+        const [gender, setGender] = useState("female");
+        const [bg, setBg] = useState("blue");
+        const [ratio, setRatio] = useState("3:4");
+        const [attire, setAttire] = useState("white");
+        const [keepFace, setKeepFace] = useState(true);
+        const [apiKey, setApiKey] = useState(localStorage.getItem("GEMINI_API_KEY") || "");
+        const [showSettings, setShowSettings] = useState(false);
+
+        const [fileBlob, setFileBlob] = useState(null);
+        const [uploadPreview, setUploadPreview] = useState(null);
+
+        const [loading, setLoading] = useState(false);
+        const [generatingPdf, setGeneratingPdf] = useState(false);
+        const [errorMsg, setErrorMsg] = useState(null);
+        const [resultUrl, setResultUrl] = useState(null);
+
+        const fileInput = useRef(null);
+
+        useEffect(() => {
+          if (!apiKey && window.process?.env?.API_KEY) {
+            setApiKey(window.process.env.API_KEY);
+          }
+        }, []);
+
+        const handleFile = (file) => {
+          setFileBlob(file);
+          const r = new FileReader();
+          r.onload = () => setUploadPreview(String(r.result));
+          r.readAsDataURL(file);
+          setErrorMsg(null);
+        };
+
+        const handleGenerate = async () => {
+          if (!fileBlob) return setErrorMsg("Vui lòng tải ảnh gốc trước.");
+          if (!apiKey) {
+            setShowSettings(true);
+            return setErrorMsg("Vui lòng cấu hình Gemini API Key trong phần cài đặt.");
+          }
+
+          setErrorMsg(null);
+          setResultUrl(null);
+          setLoading(true);
+
+          try {
+            const ai = new GoogleGenAI({ apiKey });
+            const prompt = buildIDPrompt({ gender, bg, keepFace, ratio, attire });
+
+            const base64Data = await new Promise((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const result = reader.result;
+                resolve(result.split(",")[1]);
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(fileBlob);
+            });
+
+            const response = await ai.models.generateContent({
+              model: "gemini-2.5-flash-image",
+              contents: {
+                parts: [
+                  { inlineData: { mimeType: fileBlob.type, data: base64Data } },
+                  { text: prompt }
+                ]
+              },
+              config: {
+                imageConfig: { aspectRatio: ratio }
+              }
+            });
+
+            let found = false;
+            if (response.candidates?.[0]?.content?.parts) {
+              for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                  const base64EncodeString = part.inlineData.data;
+                  setResultUrl(`data:image/png;base64,${base64EncodeString}`);
+                  found = true;
+                  break;
+                }
+              }
+            }
+
+            if (!found) throw new Error("Không tìm thấy ảnh trong phản hồi từ AI.");
+
+          } catch (e) {
+            setErrorMsg("Tạo ảnh thất bại: " + (e.message || "Lỗi không xác định"));
+            console.error(e);
+          } finally {
+            setLoading(false);
+          }
+        };
+
+        const handleDownloadPNG = () => {
+          if (!resultUrl) return;
+          const a = document.createElement("a");
+          a.href = resultUrl;
+          a.download = `anh-the-${gender}-${bg}-${ratio.replace(':', 'x')}.png`;
+          a.click();
+        };
+
+        const handleDownloadPDF = async () => {
+          if (!resultUrl) return;
+          setGeneratingPdf(true);
+
+          try {
+            const { jsPDF } = await import("https://esm.sh/jspdf@2.5.1");
+            const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+            const pageW = 210;
+            const pageH = 297;
+            let imgW = pageW - 20; 
+            let imgH = imgW;
+
+            if (ratio === "3:4") imgH = imgW * (4/3);
+            else if (ratio === "3.5:4.5") imgH = imgW * (4.5/3.5);
+
+            if (imgH > (pageH - 20)) {
+              imgH = pageH - 20;
+              if (ratio === "1:1") imgW = imgH;
+              else if (ratio === "3:4") imgW = imgH * (3/4);
+              else if (ratio === "3.5:4.5") imgW = imgH * (3.5/4.5);
+            }
+
+            const x = (pageW - imgW) / 2;
+            const y = (pageH - imgH) / 2;
+
+            doc.addImage(resultUrl, "PNG", x, y, imgW, imgH);
+            doc.save(`anh-the-A4.pdf`);
+          } catch (e) {
+            alert("Lỗi tạo PDF: " + e.message);
+          } finally {
+            setGeneratingPdf(false);
+          }
+        };
+
+        const saveApiKey = (key) => {
+          setApiKey(key);
+          localStorage.setItem("GEMINI_API_KEY", key);
+          setShowSettings(false);
+        };
+
+        return (
+          <div className="min-h-screen flex flex-col">
+            {/* Navbar */}
+            <nav className="glass sticky top-0 z-50 px-6 py-4 flex items-center justify-between border-b border-slate-200">
+              <div className="flex items-center gap-2">
+                <div className="bg-indigo-600 p-2 rounded-lg shadow-indigo-200 shadow-lg">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
+                <h1 className="text-xl font-bold tracking-tight text-slate-800 hidden sm:block">
+                  Ảnh Thẻ <span className="text-indigo-600">AI</span>
+                </h1>
+              </div>
+              
+              <div className="flex items-center gap-3">
+                <button 
+                  onClick={() => setShowSettings(true)}
+                  className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-600"
+                  title="Cài đặt"
+                >
+                  <Settings className="w-5 h-5" />
+                </button>
+                <a 
+                  href="https://ai.google.dev/" 
+                  target="_blank" 
+                  className="text-xs font-medium text-slate-500 hover:text-indigo-600 transition-colors flex items-center gap-1 bg-slate-100 px-3 py-1.5 rounded-full"
+                >
+                  Powered by Gemini <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            </nav>
+
+            <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+              {/* Left Panel */}
+              <div className="lg:col-span-5 space-y-6">
+                <section className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 overflow-hidden relative">
+                  <div className="flex items-center gap-2 mb-6">
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold">1</div>
+                    <h2 className="font-semibold text-slate-800">Tải ảnh chân dung</h2>
+                  </div>
+
+                  <div 
+                    onClick={() => fileInput.current?.click()}
+                    className={`relative group cursor-pointer border-2 border-dashed rounded-2xl transition-all duration-300 flex flex-col items-center justify-center overflow-hidden
+                      ${uploadPreview ? 'border-indigo-200 bg-indigo-50/30' : 'border-slate-200 bg-slate-50 hover:bg-slate-100 hover:border-indigo-300'}
+                      h-[280px]`}
+                  >
+                    {uploadPreview ? (
+                      <>
+                        <img src={uploadPreview} alt="Preview" className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <RefreshCw className="w-8 h-8 text-white animate-spin-slow" />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-center p-6">
+                        <div className="w-16 h-16 bg-white rounded-2xl shadow-sm flex items-center justify-center mx-auto mb-4 text-slate-400 group-hover:text-indigo-500 transition-colors">
+                          <ImageIcon className="w-8 h-8" />
+                        </div>
+                        <p className="text-sm font-medium text-slate-600">Kéo thả hoặc nhấn để tải ảnh</p>
+                        <p className="text-xs text-slate-400 mt-1">Hỗ trợ JPG, PNG, WebP</p>
+                      </div>
+                    )}
+                    <input 
+                      ref={fileInput}
+                      type="file" 
+                      accept="image/*" 
+                      className="hidden" 
+                      onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+                    />
+                  </div>
+                </section>
+
+                <section className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6">
+                  <div className="flex items-center gap-2 mb-6">
+                    <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold">2</div>
+                    <h2 className="font-semibold text-slate-800">Tùy chỉnh thông số</h2>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Giới tính</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {GENDERS.map(g => (
+                          <button
+                            key={g.id}
+                            onClick={() => setGender(g.id)}
+                            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium transition-all border
+                              ${gender === g.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md shadow-indigo-100' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-200 hover:bg-indigo-50/50'}`}
+                          >
+                            {g.icon} {g.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Màu nền</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {BACKGROUNDS.map(b => (
+                          <button
+                            key={b.id}
+                            onClick={() => setBg(b.id)}
+                            className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all border
+                              ${bg === b.id ? 'bg-indigo-50 border-indigo-200 ring-2 ring-indigo-600 ring-offset-2' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-200'}`}
+                          >
+                            <div className={`w-5 h-5 rounded-full ${b.color}`}></div>
+                            {b.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Kích thước</label>
+                      <div className="grid grid-cols-1 gap-2">
+                        {RATIOS.map(r => (
+                          <button
+                            key={r.id}
+                            onClick={() => setRatio(r.id)}
+                            className={`flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all border
+                              ${ratio === r.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-200'}`}
+                          >
+                            <span>{r.label}</span>
+                            <span className={`text-[10px] uppercase tracking-tighter ${ratio === r.id ? 'text-indigo-100' : 'text-slate-400'}`}>{r.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 block">Trang phục</label>
+                      <div className="grid grid-cols-2 gap-3">
+                        {ATTIRES.map(a => (
+                          <button
+                            key={a.id}
+                            onClick={() => setAttire(a.id)}
+                            className={`flex flex-col items-center justify-center gap-1 px-4 py-3 rounded-xl text-sm font-medium transition-all border
+                              ${attire === a.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white text-slate-600 border-slate-200 hover:border-indigo-200'}`}
+                          >
+                            <span>{a.label}</span>
+                            <span className={`text-[10px] ${attire === a.id ? 'text-indigo-100' : 'text-slate-400'}`}>{a.desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div 
+                      onClick={() => setKeepFace(!keepFace)}
+                      className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 cursor-pointer hover:bg-slate-100 transition-colors"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2 rounded-lg ${keepFace ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-400'}`}>
+                          <ShieldCheck className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">Giữ nguyên khuôn mặt</p>
+                          <p className="text-[10px] text-slate-500">Đảm bảo độ nhận diện cao nhất</p>
+                        </div>
+                      </div>
+                      <div className={`w-10 h-5 rounded-full relative transition-colors ${keepFace ? 'bg-emerald-500' : 'bg-slate-300'}`}>
+                        <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${keepFace ? 'left-6' : 'left-1'}`}></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-8">
+                    <button
+                      onClick={handleGenerate}
+                      disabled={loading}
+                      className={`w-full py-4 rounded-2xl text-white font-bold text-lg shadow-xl transition-all active:scale-[0.98] flex items-center justify-center gap-3
+                        ${loading ? 'bg-slate-400 cursor-not-allowed shadow-none' : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-200'}`}
+                    >
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-6 h-6 animate-spin" />
+                          <span>Đang vẽ ảnh...</span>
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-6 h-6" />
+                          <span>Tạo Ảnh Ngay</span>
+                        </>
+                      )}
+                    </button>
+                    {errorMsg && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mt-4 p-4 bg-rose-50 border border-rose-100 rounded-2xl flex items-start gap-3"
+                      >
+                        <AlertCircle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+                        <p className="text-sm text-rose-700 font-medium">{errorMsg}</p>
+                      </motion.div>
+                    )}
+                  </div>
+                </section>
+              </div>
+
+              {/* Right Panel */}
+              <div className="lg:col-span-7">
+                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 p-6 h-full flex flex-col">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-2">
+                      <div className="w-6 h-6 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold">3</div>
+                      <h2 className="font-semibold text-slate-800">Kết quả AI</h2>
+                    </div>
+                    {resultUrl && (
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full border border-emerald-100">
+                        <Check className="w-3 h-3" /> HOÀN TẤT
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex-1 bg-slate-50 rounded-2xl border border-slate-100 flex items-center justify-center p-8 relative overflow-hidden">
+                    <AnimatePresence mode="wait">
+                      {loading ? (
+                        <motion.div 
+                          key="loading"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          className="flex flex-col items-center text-center"
+                        >
+                          <div className="relative">
+                            <div className="w-24 h-24 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                            <div className="absolute inset-0 flex items-center justify-center">
+                              <Loader2 className="w-8 h-8 text-indigo-600 animate-pulse" />
+                            </div>
+                          </div>
+                          <h3 className="mt-6 text-lg font-bold text-slate-800">AI đang xử lý...</h3>
+                          <p className="text-sm text-slate-500 max-w-[240px] mt-2">Quá trình này thường mất khoảng 10-15 giây để đạt chất lượng tốt nhất.</p>
+                        </motion.div>
+                      ) : resultUrl ? (
+                        <motion.div 
+                          key="result"
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="relative group"
+                        >
+                          <div className={`bg-white shadow-2xl rounded-lg overflow-hidden border-8 border-white transition-all duration-500
+                            ${ratio === "1:1" ? "w-[300px] h-[300px]" : ratio === "3:4" ? "w-[300px] h-[400px]" : "w-[300px] h-[385px]"}`}>
+                            <img src={resultUrl} alt="Result" className="w-full h-full object-cover" />
+                          </div>
+                          <div className="absolute -bottom-4 -right-4 bg-white p-3 rounded-2xl shadow-xl border border-slate-100 animate-bounce">
+                            <Check className="w-6 h-6 text-emerald-500" />
+                          </div>
+                        </motion.div>
+                      ) : (
+                        <motion.div 
+                          key="empty"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          className="text-center text-slate-300"
+                        >
+                          <div className="w-24 h-24 bg-white rounded-3xl shadow-sm flex items-center justify-center mx-auto mb-4 border border-slate-100">
+                            <ImageIcon className="w-12 h-12 opacity-20" />
+                          </div>
+                          <p className="text-sm font-medium">Ảnh kết quả sẽ hiển thị tại đây</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <button
+                      onClick={handleDownloadPNG}
+                      disabled={!resultUrl}
+                      className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-bold transition-all
+                        ${resultUrl ? 'bg-slate-900 text-white hover:bg-slate-800 shadow-lg' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                    >
+                      <Download className="w-5 h-5" />
+                      Tải ảnh PNG
+                    </button>
+                    <button
+                      onClick={handleDownloadPDF}
+                      disabled={!resultUrl || generatingPdf}
+                      className={`flex items-center justify-center gap-2 py-4 rounded-2xl font-bold transition-all
+                        ${resultUrl ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
+                    >
+                      {generatingPdf ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
+                      {generatingPdf ? "Đang tạo PDF..." : "Tải file in PDF (A4)"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </main>
+
+            <footer className="py-8 border-t border-slate-200 text-center space-y-2">
+              <p className="text-xs text-slate-400 font-medium">© 2024 Ảnh Thẻ AI. Công cụ hỗ trợ tạo ảnh thẻ chuyên nghiệp bằng trí tuệ nhân tạo.</p>
+              <div className="flex flex-col items-center gap-1">
+                <p className="text-[10px] text-slate-500 font-semibold">Tác giả: Thầy Tống Phước Khải</p>
+                <a href="mailto:phuockhai79@gmail.com" className="text-[10px] text-indigo-500 hover:underline flex items-center gap-1">
+                  phuockhai79@gmail.com
+                </a>
+              </div>
+            </footer>
+
+            <AnimatePresence>
+              {showSettings && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setShowSettings(false)}
+                    className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+                  />
+                  <motion.div 
+                    initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                    className="relative bg-white w-full max-w-md rounded-[32px] shadow-2xl p-8 overflow-hidden"
+                  >
+                    <button 
+                      onClick={() => setShowSettings(false)}
+                      className="absolute top-6 right-6 p-2 hover:bg-slate-100 rounded-full transition-colors"
+                    >
+                      <X className="w-5 h-5 text-slate-400" />
+                    </button>
+
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="bg-indigo-100 p-3 rounded-2xl text-indigo-600">
+                        <Settings className="w-6 h-6" />
+                      </div>
+                      <h2 className="text-xl font-bold text-slate-800">Cài đặt API</h2>
+                    </div>
+
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 block">Gemini API Key</label>
+                        <input 
+                          type="password" 
+                          placeholder="Nhập API Key của bạn..."
+                          value={apiKey}
+                          onChange={(e) => setApiKey(e.target.value)}
+                          className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
+                        />
+                        <p className="mt-2 text-[10px] text-slate-400 leading-relaxed">
+                          Lấy API Key miễn phí tại <a href="https://aistudio.google.com/app/apikey" target="_blank" className="text-indigo-600 hover:underline">Google AI Studio</a>. Key được lưu an toàn trong trình duyệt của bạn.
+                        </p>
+                      </div>
+
+                      <button 
+                        onClick={() => saveApiKey(apiKey)}
+                        className="w-full py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-100"
+                      >
+                        Lưu Cấu Hình
+                      </button>
+                    </div>
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      }
+
+      const el = document.getElementById("root");
+      if (el) {
+        const root = createRoot(el);
+        root.render(<App />);
+      }
+    </script>
+  </body>
+</html>
